@@ -1,0 +1,50 @@
+# Agendador do JARVIS Online: chama o vigia na Vercel. Não guarda nem mostra dados do Sr.
+# A resposta do vigia nunca vai para o registro (repositório público): só o código de status.
+name: vigia
+
+on:
+  schedule:
+    - cron: '0 10 * * *'       # bom dia, 7h em Barreiras (UTC-3)
+    - cron: '*/15 10-23 * * *' # alertas, 7h às 20h45
+    - cron: '*/15 0-1 * * *'   # alertas, 21h às 22h45
+    - cron: '0 12 1 * *'       # sinal de vida mensal (o GitHub pausa agendas paradas há 60 dias)
+  workflow_dispatch:
+    inputs:
+      tipo:
+        description: 'bomdia ou alertas'
+        default: 'alertas'
+
+jobs:
+  vigia:
+    if: github.event.schedule != '0 12 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Chamar o JARVIS
+        env:
+          SEGREDO: ${{ secrets.VIGIA_SEGREDO }}
+          URL: https://jarvis-oportwise-api.vercel.app
+          AGENDA: ${{ github.event.schedule }}
+          PEDIDO: ${{ inputs.tipo }}
+        run: |
+          TIPO=alertas
+          [ "$AGENDA" = "0 10 * * *" ] && TIPO=bomdia
+          [ -n "$PEDIDO" ] && TIPO="$PEDIDO"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' -m 150 -X POST -H "X-Vigia: $SEGREDO" "$URL/api/vigia?tipo=$TIPO")
+          echo "vigia $TIPO: $STATUS"
+          [ "$STATUS" = "200" ]
+
+  sinal:
+    if: github.event.schedule == '0 12 1 * *'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%Y-%m-%dT%H:%MZ > ultimo-sinal.txt
+          git config user.name "JARVIS"
+          git config user.email "contato@oportwise.com"
+          git add ultimo-sinal.txt
+          git commit -m "Sinal de vida do vigia"
+          git push
